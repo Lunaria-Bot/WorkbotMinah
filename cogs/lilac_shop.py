@@ -54,28 +54,55 @@ class LilacShop(commands.Cog):
         key = f"shop:{category}"
         return await self.bot.redis.hgetall(key)
 
-    # --- Slash commands ---
+    # --- Slash command: /lilac (shop interface) ---
     @commands.hybrid_command(name="lilac", description="Open the Lilac shop")
-    async def lilac(self, ctx: commands.Context, category: str = None):
-        """Open shop and show items by category"""
-        if not category:
-            await ctx.send("🌸 Available categories: potions, weapons, decorations")
-            return
+    async def lilac(self, ctx: commands.Context):
+        petals = await self.get_balance(ctx.author.id)
+        tickets = await self.get_tickets(ctx.author.id)
 
-        items = await self.list_items(category)
-        if not items:
-            await ctx.send(f"❌ No items found in category `{category}`")
-            return
+        embed = discord.Embed(
+            title="🌸 Lilac General Shop",
+            description="Welcome to the enchanted Lilac shop! Choose a category below to browse items.",
+            color=discord.Color.purple()
+        )
+        embed.set_thumbnail(url=ctx.author.display_avatar.url)
+        embed.add_field(name="Petals", value=f"{petals} 🌸", inline=True)
+        embed.add_field(name="Auction Tickets", value=f"{tickets} 🎟️", inline=True)
+        embed.set_footer(text="Use /buy <item> <amount> to purchase")
 
-        embed = discord.Embed(title=f"Lilac Shop - {category}", color=discord.Color.purple())
-        for name, price in items.items():
-            embed.add_field(name=name, value=f"{price} petals", inline=False)
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="Discord Role", style=discord.ButtonStyle.primary, custom_id="shop_role"))
+        view.add_item(discord.ui.Button(label="Auction Ticket", style=discord.ButtonStyle.primary, custom_id="shop_ticket"))
 
-        await ctx.send(embed=embed)
+        async def interaction_callback(interaction: discord.Interaction):
+            if interaction.user != ctx.author:
+                await interaction.response.send_message("❌ You can't use this shop interface.", ephemeral=True)
+                return
 
+            category = "role" if interaction.data["custom_id"] == "shop_role" else "ticket"
+            items = await self.list_items(category)
+            if not items:
+                await interaction.response.send_message(f"❌ No items found in category `{category}`", ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title=f"Lilac Shop - {category.capitalize()}",
+                description=f"Items available in the `{category}` category:",
+                color=discord.Color.purple()
+            )
+            for name, price in items.items():
+                embed.add_field(name=name, value=f"{price} petals", inline=False)
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        view.children[0].callback = interaction_callback
+        view.children[1].callback = interaction_callback
+
+        await ctx.send(embed=embed, view=view)
+
+    # --- Slash command: /balance ---
     @commands.hybrid_command(name="balance", description="Check your Lilac balance")
     async def balance(self, ctx: commands.Context, member: discord.Member = None):
-        """Show petals and auction tickets with avatar"""
         member = member or ctx.author
         petals = await self.get_balance(member.id)
         tickets = await self.get_tickets(member.id)
@@ -90,26 +117,27 @@ class LilacShop(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    # --- Admin: payout petals ---
     @commands.hybrid_command(name="payout", description="Auto payout petals to members with a role")
     @commands.has_permissions(administrator=True)
     async def payout(self, ctx: commands.Context, role: discord.Role, amount: int):
-        """Give petals to all members with a specific role"""
         count = 0
         for member in role.members:
             await self.add_balance(member.id, amount)
             count += 1
         await ctx.send(f"✅ Gave {amount} petals to {count} members with role {role.name}")
 
+    # --- Admin: give auction tickets ---
     @commands.hybrid_command(name="give_ticket", description="Admin: give auction tickets to members with a role")
     @commands.has_permissions(administrator=True)
     async def give_ticket(self, ctx: commands.Context, role: discord.Role, amount: int):
-        """Give auction tickets to all members with a specific role"""
         count = 0
         for member in role.members:
             await self.add_tickets(member.id, amount)
             count += 1
         await ctx.send(f"🎟️ Gave {amount} Auction Tickets to {count} members with role {role.name}")
 
+    # --- Admin: add/remove items ---
     @commands.hybrid_command(name="add_item", description="Admin: add item to shop")
     @commands.has_permissions(administrator=True)
     async def add_item_cmd(self, ctx: commands.Context, category: str, name: str, price: int):
