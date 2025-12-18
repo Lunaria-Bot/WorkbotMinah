@@ -100,7 +100,7 @@ class LilacShop(commands.Cog):
 
         await ctx.send(embed=embed, view=view)
 
-    # --- Slash command: /balance (stylisé avec avatar en grand) ---
+    # --- Slash command: /balance (style inventaire SOFI) ---
     @commands.hybrid_command(name="balance", description="Check your Lilac wallet")
     async def balance(self, ctx: commands.Context, member: discord.Member = None):
         member = member or ctx.author
@@ -109,12 +109,17 @@ class LilacShop(commands.Cog):
 
         embed = discord.Embed(
             title=f"Minah : Wallet of {member.display_name}",
-            description="Your enchanted currency pouch ✨",
+            description="Your enchanted inventory pouch ✨",
             color=discord.Color.purple()
         )
+
+        # Avatar en grand
         embed.set_image(url=member.display_avatar.url)
+
+        # Champs façon inventaire SOFI
         embed.add_field(name="🌸 Petals", value=f"`{petals}`", inline=True)
         embed.add_field(name="🎟️ Auction Tickets", value=f"`{tickets}`", inline=True)
+       
         embed.set_footer(text="Use /lilac to open the shop")
 
         await ctx.send(embed=embed)
