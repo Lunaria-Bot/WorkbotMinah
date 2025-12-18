@@ -1,13 +1,15 @@
 import discord
 from discord.ext import commands
 import logging
-import os
 
 log = logging.getLogger("cog-lilac")
 
 SNORLAX_ROLE_ID = 1447310242911359109
 SNORLAX_PRICE = 50
 AUCTION_TICKET_PRICE = 10
+CARD_EX_MINAH_PRICE = 20
+CARD_UR_RUMAN_PRICE = 35
+PING_USER_ID = 723441401211256842  # Mentioned on card purchase
 
 class LilacShop(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -38,7 +40,7 @@ class LilacShop(commands.Cog):
         current = await self.get_tickets(user_id)
         await self.bot.redis.set(f"tickets:{user_id}", current + amount)
 
-    # --- Slash command: /lilac ---
+    # --- Slash command: /lilac (menu de catégories + dropdowns d'achat) ---
     @commands.hybrid_command(name="lilac", description="Open the Lilac shop")
     async def lilac(self, ctx: commands.Context):
         petals = await self.get_balance(ctx.author.id)
@@ -54,7 +56,7 @@ class LilacShop(commands.Cog):
         embed.add_field(name="🎟️ Auction Tickets", value=f"`{tickets}`", inline=True)
         embed.set_footer(text="Select a category to continue ✨")
 
-        view = discord.ui.View()
+        view = discord.ui.View(timeout=120)
 
         # --- Bouton Discord Role ---
         async def show_roles(interaction: discord.Interaction):
@@ -68,7 +70,7 @@ class LilacShop(commands.Cog):
                 description="Select a role to purchase:",
                 color=discord.Color.green()
             )
-            if role in ctx.author.roles:
+            if role and role in ctx.author.roles:
                 embed_role.add_field(name="Snorlax", value="Already bought ✅", inline=False)
             else:
                 embed_role.add_field(name="Snorlax", value=f"{SNORLAX_PRICE} petals", inline=False)
@@ -76,14 +78,26 @@ class LilacShop(commands.Cog):
             options = [
                 discord.SelectOption(label="Snorlax", description=f"{SNORLAX_PRICE} petals", emoji="🌸")
             ]
-            select = discord.ui.Select(placeholder="Choose a role to buy", options=options)
+            select = discord.ui.Select(placeholder="Choose a role to buy", min_values=1, max_values=1, options=options)
 
             async def select_callback(interaction2: discord.Interaction):
                 if interaction2.user != ctx.author:
                     await interaction2.response.send_message("❌ Not your shop.", ephemeral=True)
                     return
-                petals = await self.get_balance(interaction2.user.id)
-                if role in interaction2.user.roles:
+
+                role_local = ctx.guild.get_role(SNORLAX_ROLE_ID)
+                petals_local = await self.get_balance(interaction2.user.id)
+
+                if not role_local:
+                    embed_confirm = discord.Embed(
+                        title="❌ Purchase Failed",
+                        description="Role not found. Please contact an admin.",
+                        color=discord.Color.red()
+                    )
+                    await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
+                    return
+
+                if role_local in interaction2.user.roles:
                     embed_confirm = discord.Embed(
                         title="❌ Purchase Failed",
                         description="You already own Snorlax.",
@@ -91,16 +105,18 @@ class LilacShop(commands.Cog):
                     )
                     await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
                     return
-                if petals < SNORLAX_PRICE:
+
+                if petals_local < SNORLAX_PRICE:
                     embed_confirm = discord.Embed(
                         title="❌ Purchase Failed",
-                        description=f"Not enough petals. Need {SNORLAX_PRICE}, you have {petals}.",
+                        description=f"Not enough petals. Need {SNORLAX_PRICE}, you have {petals_local}.",
                         color=discord.Color.red()
                     )
                     await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
                     return
+
                 await self.add_balance(interaction2.user.id, -SNORLAX_PRICE)
-                await interaction2.user.add_roles(role)
+                await interaction2.user.add_roles(role_local)
                 embed_confirm = discord.Embed(
                     title="✅ Purchase Successful",
                     description=f"You bought **Snorlax** for {SNORLAX_PRICE} petals! Role assigned.",
@@ -109,7 +125,7 @@ class LilacShop(commands.Cog):
                 await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
 
             select.callback = select_callback
-            view_role = discord.ui.View()
+            view_role = discord.ui.View(timeout=120)
             view_role.add_item(select)
 
             await interaction.response.send_message(embed=embed_role, view=view_role, ephemeral=True)
@@ -134,21 +150,23 @@ class LilacShop(commands.Cog):
             options = [
                 discord.SelectOption(label="Auction Ticket", description=f"{AUCTION_TICKET_PRICE} petals", emoji="🎟️")
             ]
-            select = discord.ui.Select(placeholder="Choose a ticket to buy", options=options)
+            select = discord.ui.Select(placeholder="Choose a ticket to buy", min_values=1, max_values=1, options=options)
 
             async def select_callback(interaction2: discord.Interaction):
                 if interaction2.user != ctx.author:
                     await interaction2.response.send_message("❌ Not your shop.", ephemeral=True)
                     return
-                petals = await self.get_balance(interaction2.user.id)
-                if petals < AUCTION_TICKET_PRICE:
+
+                petals_local = await self.get_balance(interaction2.user.id)
+                if petals_local < AUCTION_TICKET_PRICE:
                     embed_confirm = discord.Embed(
                         title="❌ Purchase Failed",
-                        description=f"Not enough petals. Need {AUCTION_TICKET_PRICE}, you have {petals}.",
+                        description=f"Not enough petals. Need {AUCTION_TICKET_PRICE}, you have {petals_local}.",
                         color=discord.Color.red()
                     )
                     await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
                     return
+
                 await self.add_balance(interaction2.user.id, -AUCTION_TICKET_PRICE)
                 await self.add_tickets(interaction2.user.id, 1)
                 embed_confirm = discord.Embed(
@@ -159,7 +177,7 @@ class LilacShop(commands.Cog):
                 await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
 
             select.callback = select_callback
-            view_ticket = discord.ui.View()
+            view_ticket = discord.ui.View(timeout=120)
             view_ticket.add_item(select)
 
             await interaction.response.send_message(embed=embed_ticket, view=view_ticket, ephemeral=True)
@@ -167,6 +185,91 @@ class LilacShop(commands.Cog):
         btn_ticket = discord.ui.Button(label="Auction Ticket", style=discord.ButtonStyle.secondary, emoji="🎟️")
         btn_ticket.callback = show_tickets
         view.add_item(btn_ticket)
+
+        # --- Bouton Cards ---
+        async def show_cards(interaction: discord.Interaction):
+            if interaction.user != ctx.author:
+                await interaction.response.send_message("❌ This shop is only for the command user.", ephemeral=True)
+                return
+
+            embed_cards = discord.Embed(
+                title="🃏 Lilac Shop - Cards",
+                description="Select a card to purchase:",
+                color=discord.Color.gold()
+            )
+            embed_cards.add_field(name="EX Minah vCM", value=f"{CARD_EX_MINAH_PRICE} petals", inline=False)
+            embed_cards.add_field(name="UR Ruman AFK vCM", value=f"{CARD_UR_RUMAN_PRICE} petals", inline=False)
+
+            options = [
+                discord.SelectOption(label="EX Minah vCM", description=f"{CARD_EX_MINAH_PRICE} petals", emoji="✨"),
+                discord.SelectOption(label="UR Ruman AFK vCM", description=f"{CARD_UR_RUMAN_PRICE} petals", emoji="💎")
+            ]
+            select = discord.ui.Select(placeholder="Choose a card to buy", min_values=1, max_values=1, options=options)
+
+            async def select_callback(interaction2: discord.Interaction):
+                if interaction2.user != ctx.author:
+                    await interaction2.response.send_message("❌ Not your shop.", ephemeral=True)
+                    return
+
+                petals_local = await self.get_balance(interaction2.user.id)
+                chosen = select.values[0]
+
+                # Helper: send public English message pinging target user
+                async def announce_purchase(channel: discord.abc.Messageable, buyer: discord.Member, item_name: str, price: int):
+                    mention_target = f"<@{PING_USER_ID}>"
+                    await channel.send(
+                        f"🃏 {buyer.mention} has just purchased **{item_name}** for {price} petals! {mention_target}"
+                    )
+
+                if chosen == "EX Minah vCM":
+                    price = CARD_EX_MINAH_PRICE
+                    if petals_local < price:
+                        embed_confirm = discord.Embed(
+                            title="❌ Purchase Failed",
+                            description=f"Not enough petals. Need {price}, you have {petals_local}.",
+                            color=discord.Color.red()
+                        )
+                        await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
+                        return
+                    await self.add_balance(interaction2.user.id, -price)
+                    embed_confirm = discord.Embed(
+                        title="✅ Purchase Successful",
+                        description=f"You bought **EX Minah vCM** for {price} petals! ✨",
+                        color=discord.Color.green()
+                    )
+                    await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
+                    # Public English announcement
+                    await announce_purchase(ctx.channel, interaction2.user, "EX Minah vCM", price)
+
+                elif chosen == "UR Ruman AFK vCM":
+                    price = CARD_UR_RUMAN_PRICE
+                    if petals_local < price:
+                        embed_confirm = discord.Embed(
+                            title="❌ Purchase Failed",
+                            description=f"Not enough petals. Need {price}, you have {petals_local}.",
+                            color=discord.Color.red()
+                        )
+                        await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
+                        return
+                    await self.add_balance(interaction2.user.id, -price)
+                    embed_confirm = discord.Embed(
+                        title="✅ Purchase Successful",
+                        description=f"You bought **UR Ruman AFK vCM** for {price} petals! 💎",
+                        color=discord.Color.green()
+                    )
+                    await interaction2.response.send_message(embed=embed_confirm, ephemeral=True)
+                    # Public English announcement
+                    await announce_purchase(ctx.channel, interaction2.user, "UR Ruman AFK vCM", price)
+
+            select.callback = select_callback
+            view_cards = discord.ui.View(timeout=120)
+            view_cards.add_item(select)
+
+            await interaction.response.send_message(embed=embed_cards, view=view_cards, ephemeral=True)
+
+        btn_cards = discord.ui.Button(label="Cards", style=discord.ButtonStyle.danger, emoji="🃏")
+        btn_cards.callback = show_cards
+        view.add_item(btn_cards)
 
         await ctx.send(embed=embed, view=view)
 
@@ -189,7 +292,7 @@ class LilacShop(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    # --- Admin: payout petals ---
+    # --- Admin: /payout ---
     @commands.hybrid_command(name="payout", description="Admin: distribute petals to all members with a role")
     @commands.has_permissions(administrator=True)
     async def payout(self, ctx: commands.Context, role: discord.Role, amount: int):
