@@ -100,7 +100,7 @@ class LilacShop(commands.Cog):
 
         await ctx.send(embed=embed, view=view)
 
-    # --- Slash command: /balance (stylisé) ---
+    # --- Slash command: /balance (stylisé avec avatar en grand) ---
     @commands.hybrid_command(name="balance", description="Check your Lilac wallet")
     async def balance(self, ctx: commands.Context, member: discord.Member = None):
         member = member or ctx.author
