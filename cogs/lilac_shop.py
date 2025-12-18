@@ -189,6 +189,21 @@ class LilacShop(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    # --- Admin: payout petals ---
+    @commands.hybrid_command(name="payout", description="Admin: distribute petals to all members with a role")
+    @commands.has_permissions(administrator=True)
+    async def payout(self, ctx: commands.Context, role: discord.Role, amount: int):
+        count = 0
+        for member in role.members:
+            await self.add_balance(member.id, amount)
+            count += 1
+        embed = discord.Embed(
+            title="🌸 Payout Successful",
+            description=f"Gave **{amount} petals** to **{count} members** with role `{role.name}`.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LilacShop(bot))
