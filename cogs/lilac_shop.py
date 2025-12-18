@@ -100,20 +100,22 @@ class LilacShop(commands.Cog):
 
         await ctx.send(embed=embed, view=view)
 
-    # --- Slash command: /balance ---
-    @commands.hybrid_command(name="balance", description="Check your Lilac balance")
+    # --- Slash command: /balance (stylisé) ---
+    @commands.hybrid_command(name="balance", description="Check your Lilac wallet")
     async def balance(self, ctx: commands.Context, member: discord.Member = None):
         member = member or ctx.author
         petals = await self.get_balance(member.id)
         tickets = await self.get_tickets(member.id)
 
         embed = discord.Embed(
-            title=f"{member.display_name}'s Balance 🌸",
+            title=f"Minah : Wallet of {member.display_name}",
+            description="Your enchanted currency pouch ✨",
             color=discord.Color.purple()
         )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="Petals", value=str(petals), inline=True)
-        embed.add_field(name="Auction Tickets", value=str(tickets), inline=True)
+        embed.set_image(url=member.display_avatar.url)
+        embed.add_field(name="🌸 Petals", value=f"`{petals}`", inline=True)
+        embed.add_field(name="🎟️ Auction Tickets", value=f"`{tickets}`", inline=True)
+        embed.set_footer(text="Use /lilac to open the shop")
 
         await ctx.send(embed=embed)
 
