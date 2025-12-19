@@ -4,13 +4,12 @@ import logging
 
 log = logging.getLogger("cog-lilac")
 
-# --- Constants ---
 SNORLAX_ROLE_ID = 1447310242911359109
 SNORLAX_PRICE = 50
 AUCTION_TICKET_PRICE = 10
 CARD_EX_MINAH_PRICE = 20
 CARD_UR_RUMAN_PRICE = 35
-PING_USER_ID = 723441401211256842  # Mentioned on card purchase
+PING_USER_ID = 723441401211256842  # Ping on card purchase
 
 
 class LilacShop(commands.Cog):
@@ -42,23 +41,23 @@ class LilacShop(commands.Cog):
         current = await self.get_tickets(user_id)
         await self.bot.redis.set(f"tickets:{user_id}", current + amount)
 
-    # --- Command: /lilacshop (simplified UX: category dropdown -> item dropdown -> Redeem button) ---
-    @commands.hybrid_command(name="lilacshop", description="Open the simplified Lilac shop")
+    # --- Command: /lilacshop (dynamic embed updates) ---
+    @commands.hybrid_command(name="lilacshop", description="Open the dynamic Lilac shop")
     async def lilacshop(self, ctx: commands.Context):
         petals = await self.get_balance(ctx.author.id)
         tickets = await self.get_tickets(ctx.author.id)
 
-        embed = discord.Embed(
+        base_embed = discord.Embed(
             title="🌸 Lilac Shop",
             description="Select a category from the dropdown below.",
             color=discord.Color.purple()
         )
-        embed.set_thumbnail(url=ctx.author.display_avatar.url)
-        embed.add_field(name="🌸 Petals", value=f"`{petals}`", inline=True)
-        embed.add_field(name="🎟️ Auction Tickets", value=f"`{tickets}`", inline=True)
-        embed.set_footer(text="Choose a category to continue ✨")
+        base_embed.set_thumbnail(url=ctx.author.display_avatar.url)
+        base_embed.add_field(name="🌸 Petals", value=f"`{petals}`", inline=True)
+        base_embed.add_field(name="🎟️ Auction Tickets", value=f"`{tickets}`", inline=True)
+        base_embed.add_field(name="Categories", value="🌸 Discord Role\n🎟️ Auction Ticket\n🃏 Cards", inline=False)
+        base_view = discord.ui.View(timeout=180)
 
-        # Category dropdown
         categories = [
             discord.SelectOption(label="Discord Role", description="Special server roles", emoji="🌸"),
             discord.SelectOption(label="Auction Ticket", description="Bid in auctions", emoji="🎟️"),
@@ -67,47 +66,66 @@ class LilacShop(commands.Cog):
         select_category = discord.ui.Select(placeholder="Choose a category", min_values=1, max_values=1, options=categories)
 
         async def category_callback(interaction: discord.Interaction):
-            if interaction.user != ctx.author:
+            if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("❌ Not your shop.", ephemeral=True)
                 return
 
             chosen = select_category.values[0]
 
-            # Items per category
+            # Refresh wallet values live
+            live_petals = await self.get_balance(ctx.author.id)
+            live_tickets = await self.get_tickets(ctx.author.id)
+
+            base_embed.clear_fields()
+            base_embed.add_field(name="🌸 Petals", value=f"`{live_petals}`", inline=True)
+            base_embed.add_field(name="🎟️ Auction Tickets", value=f"`{live_tickets}`", inline=True)
+
             if chosen == "Discord Role":
-                item_options = [
-                    discord.SelectOption(label="Snorlax", description=f"{SNORLAX_PRICE} petals", emoji="🌸"),
-                ]
+                items_text = f"🌸 Snorlax — {SNORLAX_PRICE} petals"
+                item_options = [discord.SelectOption(label="Snorlax", description=f"{SNORLAX_PRICE} petals", emoji="🌸")]
             elif chosen == "Auction Ticket":
-                item_options = [
-                    discord.SelectOption(label="Auction Ticket", description=f"{AUCTION_TICKET_PRICE} petals", emoji="🎟️"),
-                ]
-            else:  # Cards
+                items_text = f"🎟️ Auction Ticket — {AUCTION_TICKET_PRICE} petals"
+                item_options = [discord.SelectOption(label="Auction Ticket", description=f"{AUCTION_TICKET_PRICE} petals", emoji="🎟️")]
+            else:
+                items_text = (
+                    f"✨ EX Minah vCM — {CARD_EX_MINAH_PRICE} petals\n"
+                    f"💎 UR Ruman AFK vCM — {CARD_UR_RUMAN_PRICE} petals"
+                )
                 item_options = [
                     discord.SelectOption(label="EX Minah vCM", description=f"{CARD_EX_MINAH_PRICE} petals", emoji="✨"),
                     discord.SelectOption(label="UR Ruman AFK vCM", description=f"{CARD_UR_RUMAN_PRICE} petals", emoji="💎"),
                 ]
 
-            select_item = discord.ui.Select(placeholder=f"Choose an item from {chosen}", min_values=1, max_values=1, options=item_options)
+            base_embed.add_field(name="Items", value=items_text, inline=False)
+
+            select_item = discord.ui.Select(placeholder="Choose an item", min_values=1, max_values=1, options=item_options)
 
             async def item_callback(interaction2: discord.Interaction):
-                if interaction2.user != ctx.author:
+                if interaction2.user.id != ctx.author.id:
                     await interaction2.response.send_message("❌ Not your shop.", ephemeral=True)
                     return
 
                 chosen_item = select_item.values[0]
 
-                # Redeem button
+                # Keep wallet fresh
+                live_petals2 = await self.get_balance(ctx.author.id)
+                live_tickets2 = await self.get_tickets(ctx.author.id)
+
+                base_embed.clear_fields()
+                base_embed.add_field(name="🌸 Petals", value=f"`{live_petals2}`", inline=True)
+                base_embed.add_field(name="🎟️ Auction Tickets", value=f"`{live_tickets2}`", inline=True)
+                base_embed.add_field(name="Selected item", value=f"✅ {chosen_item}", inline=False)
+
                 redeem_btn = discord.ui.Button(label="Redeem", style=discord.ButtonStyle.success, emoji="✅")
 
                 async def redeem_callback(interaction3: discord.Interaction):
-                    if interaction3.user != ctx.author:
+                    if interaction3.user.id != ctx.author.id:
                         await interaction3.response.send_message("❌ Not your shop.", ephemeral=True)
                         return
 
                     petals_local = await self.get_balance(interaction3.user.id)
 
-                    # Purchase logic
+                    # Purchase routing
                     if chosen_item == "Snorlax":
                         price = SNORLAX_PRICE
                         role = ctx.guild.get_role(SNORLAX_ROLE_ID)
@@ -118,16 +136,22 @@ class LilacShop(commands.Cog):
                             await interaction3.response.send_message("❌ You already own Snorlax.", ephemeral=True)
                             return
                         if petals_local < price:
-                            await interaction3.response.send_message(f"❌ Not enough petals. Need {price}, you have {petals_local}.", ephemeral=True)
+                            await interaction3.response.send_message(
+                                f"❌ Not enough petals. Need {price}, you have {petals_local}.",
+                                ephemeral=True
+                            )
                             return
                         await self.add_balance(interaction3.user.id, -price)
-                        await interaction3.user.add_roles(role, reason="LilacShop purchase: Snorlax")
+                        await interaction3.user.add_roles(role, reason="LilacShop: Snorlax")
                         await interaction3.response.send_message(f"✅ Redeemed **Snorlax** for {price} petals!", ephemeral=True)
 
                     elif chosen_item == "Auction Ticket":
                         price = AUCTION_TICKET_PRICE
                         if petals_local < price:
-                            await interaction3.response.send_message(f"❌ Not enough petals. Need {price}, you have {petals_local}.", ephemeral=True)
+                            await interaction3.response.send_message(
+                                f"❌ Not enough petals. Need {price}, you have {petals_local}.",
+                                ephemeral=True
+                            )
                             return
                         await self.add_balance(interaction3.user.id, -price)
                         await self.add_tickets(interaction3.user.id, 1)
@@ -136,11 +160,14 @@ class LilacShop(commands.Cog):
                     elif chosen_item == "EX Minah vCM":
                         price = CARD_EX_MINAH_PRICE
                         if petals_local < price:
-                            await interaction3.response.send_message(f"❌ Not enough petals. Need {price}, you have {petals_local}.", ephemeral=True)
+                            await interaction3.response.send_message(
+                                f"❌ Not enough petals. Need {price}, you have {petals_local}.",
+                                ephemeral=True
+                            )
                             return
                         await self.add_balance(interaction3.user.id, -price)
                         await interaction3.response.send_message(f"✅ Redeemed **EX Minah vCM** for {price} petals!", ephemeral=True)
-                        # Public announcement in English + ping target user
+                        # Public announcement in English + ping
                         await ctx.channel.send(
                             f"🃏 {interaction3.user.mention} has just purchased **EX Minah vCM** for {price} petals! <@{PING_USER_ID}>"
                         )
@@ -148,42 +175,42 @@ class LilacShop(commands.Cog):
                     elif chosen_item == "UR Ruman AFK vCM":
                         price = CARD_UR_RUMAN_PRICE
                         if petals_local < price:
-                            await interaction3.response.send_message(f"❌ Not enough petals. Need {price}, you have {petals_local}.", ephemeral=True)
+                            await interaction3.response.send_message(
+                                f"❌ Not enough petals. Need {price}, you have {petals_local}.",
+                                ephemeral=True
+                            )
                             return
                         await self.add_balance(interaction3.user.id, -price)
                         await interaction3.response.send_message(f"✅ Redeemed **UR Ruman AFK vCM** for {price} petals!", ephemeral=True)
-                        # Public announcement in English + ping target user
+                        # Public announcement in English + ping
                         await ctx.channel.send(
                             f"🃏 {interaction3.user.mention} has just purchased **UR Ruman AFK vCM** for {price} petals! <@{PING_USER_ID}>"
                         )
 
-                redeem_btn.callback = redeem_callback
-                view_redeem = discord.ui.View()
-                view_redeem.add_item(redeem_btn)
+                    # Refresh the embed wallet after redeem
+                    refreshed_petals = await self.get_balance(ctx.author.id)
+                    refreshed_tickets = await self.get_tickets(ctx.author.id)
+                    base_embed.clear_fields()
+                    base_embed.add_field(name="🌸 Petals", value=f"`{refreshed_petals}`", inline=True)
+                    base_embed.add_field(name="🎟️ Auction Tickets", value=f"`{refreshed_tickets}`", inline=True)
+                    base_embed.add_field(name="Status", value="Purchase complete ✅", inline=False)
+                    await interaction3.message.edit(embed=base_embed)
 
-                await interaction2.response.send_message(
-                    f"You selected **{chosen_item}**. Click Redeem to confirm.",
-                    view=view_redeem,
-                    ephemeral=True
-                )
+                redeem_btn.callback = redeem_callback
+                view_redeem = discord.ui.View(timeout=180)
+                view_redeem.add_item(redeem_btn)
+                await interaction2.response.edit_message(embed=base_embed, view=view_redeem)
 
             select_item.callback = item_callback
-            view_items = discord.ui.View()
-            view_items.add_item(select_item)
-
-            await interaction.response.send_message(
-                f"Category **{chosen}** selected. Now choose an item:",
-                view=view_items,
-                ephemeral=True
-            )
+            items_view = discord.ui.View(timeout=180)
+            items_view.add_item(select_item)
+            await interaction.response.edit_message(embed=base_embed, view=items_view)
 
         select_category.callback = category_callback
-        view = discord.ui.View()
-        view.add_item(select_category)
+        base_view.add_item(select_category)
+        await ctx.send(embed=base_embed, view=base_view)
 
-        await ctx.send(embed=embed, view=view)
-
-    # --- Command: /balance (thumbnail avatar, minimal fields) ---
+    # --- Command: /balance ---
     @commands.hybrid_command(name="balance", description="Check your Lilac wallet")
     async def balance(self, ctx: commands.Context, member: discord.Member = None):
         member = member or ctx.author
@@ -199,10 +226,9 @@ class LilacShop(commands.Cog):
         embed.add_field(name="🌸 Petals", value=f"`{petals}`", inline=True)
         embed.add_field(name="🎟️ Auction Tickets", value=f"`{tickets}`", inline=True)
         embed.set_footer(text="Use /lilacshop to open the shop")
-
         await ctx.send(embed=embed)
 
-    # --- Admin: /payout (distribute petals to all members with a role) ---
+    # --- Admin: /payout (give petals to members with a role) ---
     @commands.hybrid_command(name="payout", description="Admin: distribute petals to all members with a role")
     @commands.has_permissions(administrator=True)
     async def payout(self, ctx: commands.Context, role: discord.Role, amount: int):
